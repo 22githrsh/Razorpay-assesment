@@ -1,0 +1,79 @@
+.page {
+  padding: 24px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #5f6368;
+}
+
+h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.count {
+  margin: 0;
+  color: #3c4043;
+}
+
+.toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.toolbar input {
+  flex: 1;
+  min-width: 180px;
+  padding: 8px 10px;
+  border: 1px solid #c4c7ce;
+  border-radius: 6px;
+}
+
+.toolbar button {
+  padding: 8px 12px;
+  border: 1px solid #c4c7ce;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.table-wrap {
+  max-height: calc(100vh - 150px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #e4e6ea;
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 8px 12px;
+  border-bottom: 1px solid #eceef2;
+  text-align: left;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: #fafbfc;
+}
