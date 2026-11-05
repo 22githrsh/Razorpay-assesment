@@ -1,5 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
-import peopleData from "./data/people.json";
+import { useState, useCallback, useEffect } from "react";
 import Header from "./components/Header";
 import Toolbar from "./components/Toolbar";
 import PeopleTable from "./components/PeopleTable";
@@ -8,13 +7,25 @@ import PersonModal from "./components/PersonModal";
 import DeleteConfirmModal from "./components/DeleteConfirmModal";
 import EmptyState from "./components/EmptyState";
 import Toast from "./components/Toast";
-import { generateNextId } from "./utils/validation";
 import { DEFAULT_PAGE_SIZE } from "./constants/peopleOptions";
+import {
+  ApiError,
+  createPerson,
+  deletePerson,
+  fetchNextId,
+  fetchPeople,
+  updatePerson,
+} from "./api/peopleApi";
 import "./App.css";
 
 export default function App() {
-  // Master state: immutable updates only
-  const [people, setPeople] = useState(peopleData);
+  // Current page from the API. Search, filters, and sort run on the server.
+  const [people, setPeople] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [filteredCount, setFilteredCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [listError, setListError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Theme state with local persistence & system preference detection
   const [theme, setTheme] = useState(() => {
@@ -119,97 +130,76 @@ export default function App() {
     setCurrentPage(1);
   }, []);
 
-  // 1. Filtered People: case-insensitive multi-field search + categorical filters
-  const filteredPeople = useMemo(() => {
-    const trimmedQuery = query.trim().toLowerCase();
+  const [debouncedQuery, setDebouncedQuery] = useState(query);
 
-    return people.filter((person) => {
-      // Search matching across relevant identity fields
-      if (trimmedQuery) {
-        const nameMatch = (person.fullName || "").toLowerCase().includes(trimmedQuery);
-        const emailMatch = (person.email || "").toLowerCase().includes(trimmedQuery);
-        const idMatch = (person.id || "").toLowerCase().includes(trimmedQuery);
-        const phoneMatch = (person.phone || "").toLowerCase().includes(trimmedQuery);
-        const cityMatch = (person.city || "").toLowerCase().includes(trimmedQuery);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 250);
+    return () => clearTimeout(timer);
+  }, [query]);
 
-        if (!nameMatch && !emailMatch && !idMatch && !phoneMatch && !cityMatch) {
-          return false;
-        }
-      }
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(filteredCount / pageSize) || 1);
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [filteredCount, pageSize, currentPage]);
 
-      // Role filter
-      if (filters.role && person.role !== filters.role) {
-        return false;
-      }
+  useEffect(() => {
+    const controller = new AbortController();
+    let ignore = false;
 
-      // Segment filter
-      if (filters.segment && person.segment !== filters.segment) {
-        return false;
-      }
-
-      // Status filter
-      if (filters.status) {
-        if (filters.status === "__unassigned__") {
-          if (person.status) return false;
-        } else if (person.status !== filters.status) {
-          return false;
-        }
-      }
-
-      // City filter
-      if (filters.city && person.city !== filters.city) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [people, query, filters]);
-
-  // 2. Sorted People: strictly immutable sort on the filtered dataset
-  const sortedPeople = useMemo(() => {
-    const { field, direction } = sortConfig;
-    const mult = direction === "asc" ? 1 : -1;
-
-    return [...filteredPeople].sort((a, b) => {
-      const valA = a[field] ?? "";
-      const valB = b[field] ?? "";
-
-      if (typeof valA === "string" && typeof valB === "string") {
-        return (
-          valA.localeCompare(valB, undefined, {
-            numeric: true,
-            sensitivity: "base",
-          }) * mult
+    async function loadPeople() {
+      setLoading(true);
+      setListError("");
+      try {
+        const result = await fetchPeople(
+          {
+            page: currentPage,
+            limit: pageSize,
+            q: debouncedQuery.trim(),
+            role: filters.role,
+            segment: filters.segment,
+            status: filters.status,
+            city: filters.city,
+            sort: sortConfig.field,
+            direction: sortConfig.direction,
+          },
+          controller.signal
         );
+        if (ignore) return;
+        setPeople(result.data || []);
+        setTotalCount(result.total || 0);
+        setFilteredCount(result.filteredTotal || 0);
+      } catch (error) {
+        if (ignore || error.name === "AbortError") return;
+        setListError(error.message || "Could not load people.");
+      } finally {
+        if (!ignore) setLoading(false);
       }
+    }
 
-      if (valA < valB) return -1 * mult;
-      if (valA > valB) return 1 * mult;
-      return 0;
-    });
-  }, [filteredPeople, sortConfig]);
+    loadPeople();
+    return () => {
+      ignore = true;
+      controller.abort();
+    };
+  }, [debouncedQuery, filters, sortConfig, currentPage, pageSize, refreshKey]);
 
-  // 3. Paginated People: slice window of the sorted list
-  const paginatedPeople = useMemo(() => {
-    const startIndex = (currentPage - 1) * pageSize;
-    return sortedPeople.slice(startIndex, startIndex + pageSize);
-  }, [sortedPeople, currentPage, pageSize]);
-
-  // Ensure current page does not exceed available pages
-  const totalPages = Math.max(1, Math.ceil(sortedPeople.length / pageSize));
-  if (currentPage > totalPages && totalPages > 0) {
-    setCurrentPage(totalPages);
-  }
+  const reloadPeople = useCallback(() => {
+    setRefreshKey((value) => value + 1);
+  }, []);
 
   // CRUD Operations
-  const handleOpenAddModal = useCallback(() => {
-    const nextId = generateNextId(people);
-    setPersonModal({
-      isOpen: true,
-      mode: "create",
-      person: { id: nextId },
-    });
-  }, [people]);
+  const handleOpenAddModal = useCallback(async () => {
+    try {
+      const next = await fetchNextId();
+      setPersonModal({
+        isOpen: true,
+        mode: "create",
+        person: { id: next.id },
+      });
+    } catch (error) {
+      showToast(error.message || "Could not reserve a new record id.", "error");
+    }
+  }, [showToast]);
 
   const handleOpenEditModal = useCallback((person) => {
     setPersonModal({
@@ -228,26 +218,28 @@ export default function App() {
   }, []);
 
   const handleSavePerson = useCallback(
-    (personData, isEdit) => {
-      if (isEdit) {
-        // Update only the selected record immutably
-        setPeople((prev) =>
-          prev.map((item) => (item.id === personData.id ? personData : item))
-        );
-        showToast(`Updated record for ${personData.fullName} (${personData.id})`);
-      } else {
-        // Add new record to the top of the collection so it is visible immediately
-        setPeople((prev) => [personData, ...prev]);
-        // Reset query and page to 1 so the newly created record is immediately seen
-        setQuery("");
-        setCurrentPage(1);
-        showToast(
-          `Added ${personData.fullName} (${personData.id}) to directory.`
-        );
+    async (personData, isEdit) => {
+      try {
+        if (isEdit) {
+          await updatePerson(personData.id, personData);
+          showToast(`Updated record for ${personData.fullName} (${personData.id})`);
+        } else {
+          await createPerson(personData);
+          setQuery("");
+          setDebouncedQuery("");
+          setCurrentPage(1);
+          showToast(`Added ${personData.fullName} (${personData.id}) to directory.`);
+        }
+        handleClosePersonModal();
+        reloadPeople();
+        return { ok: true };
+      } catch (error) {
+        const fieldErrors = error instanceof ApiError ? error.errors : undefined;
+        showToast(error.message || "Could not save this person.", "error");
+        return { ok: false, fieldErrors };
       }
-      handleClosePersonModal();
     },
-    [showToast, handleClosePersonModal]
+    [showToast, handleClosePersonModal, reloadPeople]
   );
 
   const handleOpenDeleteModal = useCallback((person) => {
@@ -265,25 +257,30 @@ export default function App() {
   }, []);
 
   const handleConfirmDelete = useCallback(
-    (personToDelete) => {
-      setPeople((prev) => prev.filter((item) => item.id !== personToDelete.id));
-
-      // Handle page step-back if deleting the sole item on the last page
-      if (
-        filteredPeople.length > 1 &&
-        (filteredPeople.length - 1) <= (currentPage - 1) * pageSize &&
-        currentPage > 1
-      ) {
-        setCurrentPage((prev) => prev - 1);
+    async (personToDelete) => {
+      try {
+        await deletePerson(personToDelete.id);
+        const remaining = Math.max(0, filteredCount - 1);
+        const lastPage = Math.max(1, Math.ceil(remaining / pageSize));
+        if (currentPage > lastPage) setCurrentPage(lastPage);
+        showToast(
+          `Deleted record for ${personToDelete.fullName} (${personToDelete.id}).`,
+          "info"
+        );
+        handleCloseDeleteModal();
+        reloadPeople();
+      } catch (error) {
+        showToast(error.message || "Could not delete this person.", "error");
       }
-
-      showToast(
-        `Deleted record for ${personToDelete.fullName} (${personToDelete.id}).`,
-        "info"
-      );
-      handleCloseDeleteModal();
     },
-    [filteredPeople.length, currentPage, pageSize, showToast, handleCloseDeleteModal]
+    [
+      filteredCount,
+      currentPage,
+      pageSize,
+      showToast,
+      handleCloseDeleteModal,
+      reloadPeople,
+    ]
   );
 
   return (
@@ -291,8 +288,8 @@ export default function App() {
       <div className="page-container">
         {/* Header with Stats, Theme Toggle & Actions */}
         <Header
-          totalCount={people.length}
-          filteredCount={filteredPeople.length}
+          totalCount={totalCount}
+          filteredCount={filteredCount}
           onAddClick={handleOpenAddModal}
           theme={theme}
           onToggleTheme={handleToggleTheme}
@@ -310,13 +307,32 @@ export default function App() {
         />
 
         {/* Directory Content Area */}
-        <main className="directory-main" aria-label="People Directory Content">
-          {sortedPeople.length === 0 ? (
+        <main className="directory-main" aria-label="People Directory Content" aria-busy={loading}>
+          {listError && (
+            <div className="list-banner list-banner-error" role="alert">
+              <span>{listError}</span>
+              <button type="button" className="btn btn-secondary" onClick={reloadPeople}>
+                Retry
+              </button>
+            </div>
+          )}
+          {loading && people.length === 0 && !listError ? (
+            <div className="list-status" role="status">
+              Loading people…
+            </div>
+          ) : listError && people.length === 0 ? (
+            <div className="list-status">The directory could not be loaded.</div>
+          ) : !loading && filteredCount === 0 ? (
             <EmptyState onReset={handleResetFilters} />
           ) : (
             <>
+              {loading && (
+                <div className="list-banner" role="status">
+                  Updating results…
+                </div>
+              )}
               <PeopleTable
-                people={paginatedPeople}
+                people={people}
                 sortConfig={sortConfig}
                 onSort={handleSortChange}
                 onEdit={handleOpenEditModal}
@@ -326,7 +342,7 @@ export default function App() {
               <Pagination
                 currentPage={currentPage}
                 pageSize={pageSize}
-                totalItems={sortedPeople.length}
+                totalItems={filteredCount}
                 onPageChange={setCurrentPage}
                 onPageSizeChange={handlePageSizeChange}
               />

@@ -32,6 +32,7 @@ export default function PersonModal({
 
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const nameInputRef = useRef(null);
   const modalRef = useRef(null);
 
@@ -132,8 +133,9 @@ export default function PersonModal({
     }));
   }
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
+    if (isSubmitting) return;
 
     // Mark all as touched
     setTouched({
@@ -167,7 +169,15 @@ export default function PersonModal({
       phone: formData.phone.trim(),
     };
 
-    onSave(personToSave, isEdit);
+    setIsSubmitting(true);
+    try {
+      const result = await onSave(personToSave, isEdit);
+      if (result && result.ok === false && result.fieldErrors) {
+        setErrors((prev) => ({ ...prev, ...result.fieldErrors }));
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -409,8 +419,8 @@ export default function PersonModal({
             >
               Cancel
             </button>
-            <button type="submit" className="btn btn-primary">
-              {isEdit ? "Save Changes" : "Create Person"}
+            <button type="submit" className="btn btn-primary" disabled={isSubmitting}>
+              {isSubmitting ? "Saving…" : isEdit ? "Save Changes" : "Create Person"}
             </button>
           </div>
         </form>

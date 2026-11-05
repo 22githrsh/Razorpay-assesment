@@ -1,6 +1,8 @@
 # Razorpay People Directory
 
-An enterprise-grade, accessible, and high-performance React application designed to manage **20,000 real people records** in a responsive directory interface. Built from the ground up to solve the Razorpay AI-Assisted React Coding Assessment with engineering rigor, deliberate state management, and zero unnecessary dependencies.
+React client for the Razorpay people directory. The repository is now a MERN application: this folder is the frontend, and the Express/MongoDB API lives in [`../backend`](../backend). Setup, API, and MongoDB instructions are in the [repository README](../README.md).
+
+An enterprise-grade, accessible, and high-performance React application designed to manage **20,000 real people records** in a responsive directory interface. The interface, validation, and table rendering from the React assessment are unchanged. Records are now loaded one page at a time from the API.
 
 ---
 
@@ -298,8 +300,8 @@ To eliminate layout shifts during initial mount, hydration, and pagination:
 
 ## 12. Known Limitations
 
-1. **Client-side Seed Bundle:** The full `people.json` file is bundled into the client bundle (~4.8 MB uncompressed JS). This is expected for this offline frontend-only assessment. In a production multi-page architecture, records would be fetched on-demand from a REST/GraphQL endpoint or loaded via dynamic `import()`.
-2. **Browser Session Persistence:** Changes (creates, edits, deletes) are held in React component state. Refreshing the browser resets the dataset back to the 20,000 seed records. `localStorage` could be added if offline persistence between refreshes is needed.
+1. **Page-sized duplicate check in the browser:** The form still validates the current page immediately. Uniqueness across all 20,000 records is enforced by the API, which returns `409` when an email is already taken.
+2. **Seed file remains in the frontend project:** `src/data/people.json` is the import source for MongoDB and for `npm test`. The running UI no longer bundles that file into the page.
 
 ---
 

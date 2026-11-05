@@ -1,0 +1,8 @@
+node_modules
+.env
+.DS_Store
+backend/node_modules
+backend/.env
+razorpay-people-directory/node_modules
+razorpay-people-directory/dist
+razorpay-people-directory/.env
