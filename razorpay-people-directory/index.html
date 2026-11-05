@@ -4,6 +4,39 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>People Directory</title>
+
+    <!-- Synchronous inline theme initialization to eliminate theme FOUC and CLS -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("rp_theme");
+          var theme =
+            saved === "dark" || saved === "light"
+              ? saved
+              : window.matchMedia &&
+                window.matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {}
+      })();
+    </script>
+
+    <!-- Critical layout stabilization styles to eliminate initial layout shifts -->
+    <style>
+      html {
+        scrollbar-gutter: stable;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+      #root {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
